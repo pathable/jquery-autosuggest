@@ -26,6 +26,8 @@
     $.fn.autoSuggest = function(data, options) {
         var defaults = {
             asHtmlID: false,
+						asHiddenHtmlID: false,
+						asHiddenHtmlName: false,
             startText: "Enter Name Here",
             usePlaceholder: false,
             emptyText: "No Results Found",
@@ -86,14 +88,49 @@
                 var input_focus = false;
 
                 // Setup basic elements and render them to the DOM
-                input.wrap('<ul class="as-selections" id="as-selections-'+x+'"></ul>').wrap('<li class="as-original" id="as-original-'+x+'"></li>');
-                var selections_holder = $("#as-selections-"+x);
-                var org_li = $("#as-original-"+x);
-                var results_holder = $('<div class="as-results" id="as-results-'+x+'"></div>').hide();
-                var results_ul =  $('<ul class="as-list"></ul>');
-                var values_input = $('<input type="hidden" class="as-values" name="as_values_'+x+'" id="as-values-'+x+'" />');
-                var prefill_value = "";
-                if(typeof opts.preFill == "string"){
+								var events_attached = false;
+								
+								var as_selections_id = 'as-selections-' + x;
+								var as_original_id = 'as-original-' + x;
+								var as_results_id = 'as-results-' + x;
+								var as_values_id = 'as-values-' + x;
+								
+								var selections_holder = null;
+                var org_li            = null;
+                var results_holder    = null;
+                var results_ul        = null;
+                var values_input      = null;
+                
+								// Dont double create select items for this input if they already exist
+								// Otherwise create basic autosuggest elements
+								if ($('#'+as_selections_id).length) {
+									events_attached = true;
+									
+	                selections_holder = $('#' + as_selections_id);
+	                org_li            = $('#' + as_original_id);
+	                results_holder    = $('#' + as_results_id).hide();
+	                results_ul        = results_holder.find('ul.as-list');
+	                values_input      = $('#' + as_values_id);
+								} else {
+									events_attached = false;
+									
+									input.
+										wrap('<ul class="as-selections" id="' + as_selections_id + '"></ul>').
+										wrap('<li class="as-original" id="as-original-'+x+'"></li>');
+
+	                selections_holder = $('#' + as_selections_id);
+	                org_li            = $('#'+as_original_id);
+	                results_holder    = $('<div class="as-results" id="' + as_results_id + '"></div>').hide();
+	                results_ul        = $('<ul class="as-list"></ul>');
+	                values_input      = $('<input type="hidden" class="as-values" name="as_values_'+x+'" id="' + as_values_id + '" />');	                
+								}
+								
+								var prefill_value = "";
+
+                if (typeof opts.preFill == "string") {
+										// Since preFill is passed, remove any pre-existing selections
+										$('#' + as_selections_id).find('li.as-selection-item').remove();
+										
                     var vals = opts.preFill.split(",");
                     for(var i=0; i < vals.length; i++){
                         var v_data = {};
@@ -139,114 +176,132 @@
                 var lastKeyPressCode = null;
                 var request = null;
 
-                // Handle input field events
-                input.focus(function(){
-                    if(!opts.usePlaceholder && $(this).val() == opts.startText && values_input.val() == ""){
-                        $(this).val("");
-                    } else if(input_focus){
-                        $("li.as-selection-item", selections_holder).removeClass("blur");
-                        if($(this).val() != ""){
-                            results_ul.css("width",selections_holder.outerWidth());
-                            results_holder.show();
-                        }
-                    }
-                    if (interval) clearInterval(interval);
-                    interval = setInterval(function() {
-                        if(opts.showResultList){
-                            if(opts.selectionLimit && $("li.as-selection-item", selections_holder).length >= opts.selectionLimit){
-                                results_ul.html('<li class="as-message">'+opts.limitText+'</li>');
-                                results_holder.show();
-                            } else {
-                                keyChange();
-                            }
-                        }
-                    }, opts.keyDelay);
-                    input_focus = true;
-                    if (opts.minChars == 0){
-                      processRequest($(this).val());
-                    }
-                    return true;
-                }).blur(function(){
-                    if (!opts.usePlaceholder && $(this).val() == "" && values_input.val() == "" && prefill_value == "" && opts.minChars > 0) {
-                        $(this).val(opts.startText);
-                    } else if(input_focus){
-                        $("li.as-selection-item", selections_holder).addClass("blur").removeClass("selected");
-                        results_holder.hide();
-                    }
-                    if (interval) clearInterval(interval);
-                }).keydown(function(e) {
-                    // track last key pressed
-                    lastKeyPressCode = e.keyCode;
-                    first_focus = false;
-                    switch(e.keyCode) {
-                        case 38: // up
-                            e.preventDefault();
-                            moveSelection("up");
-                            break;
-                        case 40: // down
-                            e.preventDefault();
-                            moveSelection("down");
-                            break;
-                        case 8:  // delete
-                            if(input.val() == ""){
-                                var last = values_input.val().split(",");
-                                last = last[last.length - 2];
-                                selections_holder.children().not(org_li.prev()).removeClass("selected");
-                                if(org_li.prev().hasClass("selected")){
-                                    values_input.val(values_input.val().replace(","+last+",",","));
-                                    opts.selectionRemoved.call(this, org_li.prev());
-                                } else {
-                                    opts.selectionClick.call(this, org_li.prev());
-                                    org_li.prev().addClass("selected");
-                                }
-                            }
-                            if(input.val().length == 1){
-                                results_holder.hide();
-                                prev = "";
-                                abortRequest();
-                            }
-                            if($(":visible",results_holder).length > 0){
-                                if (timeout){ clearTimeout(timeout); }
-                                timeout = setTimeout(function(){ keyChange(); }, opts.keyDelay);
-                            }
-                            break;
-                        case 9: case 188:  // tab or comma
-                            tab_press = true;
-                            var i_input = input.val().replace(/(,)/g, "");
-                            var active = $("li.active:first", results_holder);
-                            // Generate a new bubble with text when no suggestion selected
-                            if(i_input !== "" && values_input.val().search(","+i_input+",") < 0 && i_input.length >= opts.minChars && active.length === 0){
-                                e.preventDefault();
-                                var n_data = {};
-                                n_data[opts.selectedItemProp] = i_input;
-                                n_data[opts.selectedValuesProp] = i_input;
-                                var lis = $("li", selections_holder).length;
-                                add_selected_item(n_data, "00"+(lis+1));
-                                input.val("");
-                                // Cancel previous request when new tag is added
-                                abortRequest();
-                                break;
-                            }
-                        case 13: // return
-                            tab_press = false;
-                            var active = $("li.active:first", results_holder);
-                            if(active.length > 0){
-                                active.click();
-                                results_holder.hide();
-                            }
-                            if(opts.neverSubmit || active.length > 0){
-                                e.preventDefault();
-                            }
-                            break;
-                        // ignore if the following keys are pressed: [escape] [shift] [capslock]
-                        case 27: // escape
-                        case 16: // shift
-                        case 20: // capslock
-                            abortRequest();
-                            results_holder.hide();
-                            break;
-                    }
-                });
+                // Handle input field events if not already attached to this input 
+								if (!events_attached) {
+									input.focus(function(){
+	                    if(!opts.usePlaceholder && $(this).val() == opts.startText && values_input.val() == ""){
+	                        $(this).val("");
+	                    } else if(input_focus){
+	                        $("li.as-selection-item", selections_holder).removeClass("blur");
+	                        if($(this).val() != ""){
+	                            results_ul.css("width",selections_holder.outerWidth());
+	                            results_holder.show();
+	                        }
+	                    }
+	                    if (interval) clearInterval(interval);
+	                    interval = setInterval(function() {
+	                        if(opts.showResultList){
+	                            if(opts.selectionLimit && $("li.as-selection-item", selections_holder).length >= opts.selectionLimit){
+	                                results_ul.html('<li class="as-message">'+opts.limitText+'</li>');
+	                                results_holder.show();
+	                            } else {
+	                                keyChange();
+	                            }
+	                        }
+	                    }, opts.keyDelay);
+	                    input_focus = true;
+	                    if (opts.minChars == 0){
+	                      processRequest($(this).val());
+	                    }
+	                    return true;
+	                }).blur(function(){
+	                    if (!opts.usePlaceholder && $(this).val() == "" && values_input.val() == "" && prefill_value == "" && opts.minChars > 0) {
+	                        $(this).val(opts.startText);
+	                    } else if(input_focus){
+	                        $("li.as-selection-item", selections_holder).addClass("blur").removeClass("selected");
+	                        results_holder.hide();
+	                    }
+	                    if (interval) clearInterval(interval);
+	                }).keydown(function(e) {
+	                    // track last key pressed
+	                    lastKeyPressCode = e.keyCode;
+	                    first_focus = false;
+	                    switch(e.keyCode) {
+	                        case 38: // up
+	                            e.preventDefault();
+	                            moveSelection("up");
+	                            break;
+	                        case 40: // down
+	                            e.preventDefault();
+	                            moveSelection("down");
+	                            break;
+	                        case 8:  // delete
+	                            if(input.val() == ""){
+	                                var last = values_input.val().split(",");
+	                                last = last[last.length - 2];
+	                                selections_holder.children().not(org_li.prev()).removeClass("selected");
+	                                if(org_li.prev().hasClass("selected")){
+	                                    values_input.val(values_input.val().replace(","+last+",",","));
+	                                    opts.selectionRemoved.call(this, org_li.prev());
+	                                } else {
+	                                    opts.selectionClick.call(this, org_li.prev());
+	                                    org_li.prev().addClass("selected");
+	                                }
+	                            }
+	                            if(input.val().length == 1){
+	                                results_holder.hide();
+	                                prev = "";
+	                                abortRequest();
+	                            }
+	                            if($(":visible",results_holder).length > 0){
+	                                if (timeout){ clearTimeout(timeout); }
+	                                timeout = setTimeout(function(){ keyChange(); }, opts.keyDelay);
+	                            }
+	                            break;
+	                        case 9: case 188: case 13: // tab or comma
+		                            
+	                            var active = $("li.active:first", results_holder);
+
+	                            if(active.length > 0){
+	                                active.click();
+	                                results_holder.hide();
+																	
+																	tab_press = false;
+																	
+																	if(opts.neverSubmit || active.length > 0){
+			                                e.preventDefault();
+			                            }
+																	break;
+	                            }
+
+	                            tab_press = true;
+
+	                            var i_input = input.val().replace(/(,)/g, "");
+
+	                            // Generate a new bubble with text when no suggestion selected
+	                            if(i_input !== "" && values_input.val().search(","+i_input+",") < 0 && i_input.length >= opts.minChars && active.length === 0){
+	                                e.preventDefault();
+	                                var n_data = {};
+	                                n_data[opts.selectedItemProp] = i_input;
+	                                n_data[opts.selectedValuesProp] = i_input;
+	                                var lis = $("li", selections_holder).length;
+	                                add_selected_item(n_data, "00"+(lis+1));
+	                                input.val("");
+	                                // Cancel previous request when new tag is added
+	                                abortRequest();
+	                                break;
+	                            }
+	                        // case 13: // return
+	                        //     tab_press = false;
+	                        //     var active = $("li.active:first", results_holder);
+	                        //     if(active.length > 0){
+	                        //         active.click();
+	                        //         results_holder.hide();
+	                        //     }
+	                        //     if(opts.neverSubmit || active.length > 0){
+	                        //         e.preventDefault();
+	                        //     }
+	                        //     break;
+	                        // ignore if the following keys are pressed: [escape] [shift] [capslock]
+	                        case 27: // escape
+	                        case 16: // shift
+	                        case 20: // capslock
+	                            abortRequest();
+	                            results_holder.hide();
+	                            break;
+	                    }
+	                });
+								};
 
                 function keyChange() {
                     // Since most IME does not trigger any key events, if we press [del]
@@ -380,7 +435,7 @@
                             input.focus();
                             return false;
                         });
-                    org_li.before(item.html(data[opts.selectedItemProp]).prepend(close));
+                    org_li.before(item.html(data[opts.selectedItemProp]).append(close));
                     opts.selectionAdded.call(this, org_li.prev(), data[opts.selectedValuesProp]);
                 }
 
